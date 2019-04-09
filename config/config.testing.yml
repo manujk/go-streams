@@ -1,0 +1,9 @@
+# Development Environment specific config
+
+kafka:
+  brokers:
+    - 172.16.2.142:9092
+    - 172.16.2.143:9092
+    - 172.16.2.144:9092
+  topic: gotest
+  group: gogroup

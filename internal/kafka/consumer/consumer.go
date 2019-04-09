@@ -23,7 +23,6 @@ func CreateConsumer(brokers []string, topic string, group string) *kafka.Reader 
 	_ = r.SetOffset(-1)
 
 	return r
-
 }
 
 func Subscribe(wg *sync.WaitGroup, r *kafka.Reader, ch chan []byte) {
