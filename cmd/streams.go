@@ -6,14 +6,18 @@ import (
 	"os/signal"
 	"streams/internal/kafka/consumer"
 	"streams/internal/parser"
+	"streams/internal/utils"
 	"sync"
 	"syscall"
 )
 
 func main() {
+
+	config := utils.LoadConfig()
+
 	//TODO Replace with context
 
-	r := consumer.CreateConsumer()
+	r := consumer.CreateConsumer(config.Kafka.Brokers, config.Kafka.Topic, config.Kafka.Group)
 	var wg sync.WaitGroup
 	wg.Add(2)
 	parserQueue := make(chan []byte)
