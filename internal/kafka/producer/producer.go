@@ -1,56 +1,38 @@
 package producer
 
 import (
-	"context"
 	"fmt"
-	"github.com/gammazero/workerpool"
-	"github.com/segmentio/kafka-go"
-	"sync"
+	"github.com/Shopify/sarama"
 )
 
-func Connect(brokers []string, topic string) *kafka.Writer {
+func Connect(brokers []string) (sarama.SyncProducer, error) {
 
-	w := kafka.NewWriter(kafka.WriterConfig{
-		Brokers:  brokers,
-		Topic:    topic,
-		Balancer: &kafka.LeastBytes{},
-	})
-	return w
+	config := sarama.NewConfig()
+	config.Producer.Retry.Max = 5
+	config.Producer.RequiredAcks = sarama.WaitForAll
+	config.Producer.Return.Successes = true
+
+	fmt.Println()
+
+	prd, err := sarama.NewSyncProducer(brokers, config)
+	return prd, err
 }
 
-func MessageBuilder(key []byte, value string) kafka.Message {
-	return kafka.Message{
-		Key:   key,
-		Value: []byte(value),
-	}
-}
+func Publish(producer sarama.SyncProducer, topic string, in chan string) {
 
-func Publish(wg *sync.WaitGroup, w *kafka.Writer, in chan string, concurrency int) {
-
-	producerPool := workerpool.New(concurrency)
-	defer func() {
-		producerPool.StopWait()
-		_ = w.Close()
-		wg.Done()
-	}()
-
-	for {
-		select {
-		case msg, ok := <-in:
-			if !ok {
-				fmt.Println("All work done")
-				return
-			}
-
-			producerPool.Submit(func() {
-
-				kafkaMsg := MessageBuilder(nil, msg)
-				_ = w.WriteMessages(context.Background(), kafkaMsg)
-
-			})
-
+	//channel range doesnt stop when there’s no more elements to be read
+	// unless the channel is closed
+	count := 0
+	for message := range in {
+		count++
+		msg := &sarama.ProducerMessage{
+			Topic: topic,
+			Value: sarama.StringEncoder(message),
+		}
+		_, _, err := producer.SendMessage(msg)
+		if err != nil {
+			fmt.Println("Error publish: ", err.Error())
 		}
 
 	}
-
 }

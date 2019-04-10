@@ -1,42 +1,135 @@
-package consumer
+package main
 
 import (
 	"context"
-	"github.com/segmentio/kafka-go"
-	"math/rand"
-	"sync"
-	"time"
+	"flag"
+	"log"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+
+	"github.com/Shopify/sarama"
 )
 
-func CreateConsumer(brokers []string, topic string, group string) *kafka.Reader {
-	rand.Seed(time.Now().UnixNano())
-	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: brokers,
-		//GroupID:        utils.RandSeq(10),
-		GroupID:        group,
-		Topic:          topic,
-		MinBytes:       10e3,            // 10KB
-		MaxBytes:       10e6,            // 10MB
-		CommitInterval: 3 * time.Second, // 3 Seconds
-	})
+// Sarma configuration options
+var (
+	brokers = ""
+	version = ""
+	group   = ""
+	topics  = ""
+	oldest  = true
+	verbose = false
+)
 
-	_ = r.SetOffset(-1)
+func init() {
+	flag.StringVar(&brokers, "brokers", "192.168.1.142:9092,192.168.1.143:9092,192.168.1.144:9092", "Kafka bootstrap brokers to connect to, as a comma separated list")
+	flag.StringVar(&group, "group", "gogroup1", "Kafka consumer group definition")
+	flag.StringVar(&version, "version", "2.1.1", "Kafka cluster version")
+	flag.StringVar(&topics, "topics", "gotest", "Kafka topics to be consumed, as a comma seperated list")
+	flag.BoolVar(&oldest, "oldest", true, "Kafka consumer consume initial ofset from oldest")
+	flag.BoolVar(&verbose, "verbose", false, "Sarama logging")
+	flag.Parse()
 
-	return r
+	if len(brokers) == 0 {
+		panic("no Kafka bootstrap brokers defined, please set the -brokers flag")
+	}
+
+	if len(topics) == 0 {
+		panic("no topics given to be consumed, please set the -topics flag")
+	}
+
+	if len(group) == 0 {
+		panic("no Kafka consumer group defined, please set the -group flag")
+	}
 }
 
-func Subscribe(wg *sync.WaitGroup, r *kafka.Reader, ch chan []byte) {
+func main() {
+	log.Println("Starting a new Sarama consumer")
 
-	defer func(wg *sync.WaitGroup, ch chan []byte) {
-		close(ch)
-		wg.Done()
-	}(wg, ch)
-
-	for {
-		m, err := r.ReadMessage(context.Background())
-		if err != nil {
-			break
-		}
-		ch <- m.Value
+	if verbose {
+		sarama.Logger = log.New(os.Stdout, "[sarama] ", log.LstdFlags)
 	}
+
+	version, err := sarama.ParseKafkaVersion(version)
+	if err != nil {
+		panic(err)
+	}
+
+	/**
+	 * Construct a new Sarama configuration.
+	 * The Kafka cluster version has to be defined before the consumer/producer is initialized.
+	 */
+	config := sarama.NewConfig()
+	config.Version = version
+
+	if oldest {
+		config.Consumer.Offsets.Initial = sarama.OffsetOldest
+	}
+
+	/**
+	 * Setup a new Sarama consumer group
+	 */
+	consumer := Consumer{}
+
+	ctx := context.Background()
+	client, err := sarama.NewConsumerGroup(strings.Split(brokers, ","), group, config)
+	if err != nil {
+		panic(err)
+	}
+	consumer.ready = make(chan bool, 0)
+
+	go func() {
+		for {
+			err := client.Consume(ctx, strings.Split(topics, ","), &consumer)
+			if err != nil {
+				break
+			}
+		}
+	}()
+
+	<-consumer.ready // Await till the consumer has been set up
+	log.Println("Sarama consumer up and running!...")
+
+	sigterm := make(chan os.Signal, 1)
+	signal.Notify(sigterm, syscall.SIGINT, syscall.SIGTERM)
+
+	<-sigterm // Await a sigterm signal before safely closing the consumer
+
+	err = client.Close()
+	if err != nil {
+		panic(err)
+	}
+}
+
+// Consumer represents a Sarama consumer group consumer
+type Consumer struct {
+	ready chan bool
+}
+
+// Setup is run at the beginning of a new session, before ConsumeClaim
+func (consumer *Consumer) Setup(sarama.ConsumerGroupSession) error {
+	// Mark the consumer as ready
+	close(consumer.ready)
+	return nil
+}
+
+// Cleanup is run at the end of a session, once all ConsumeClaim goroutines have exited
+func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
+	return nil
+}
+
+// ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
+func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+
+	// NOTE:
+	// Do not move the code below to a goroutine.
+	// The `ConsumeClaim` itself is called within a goroutine, see:
+	// https://github.com/Shopify/sarama/blob/master/consumer_group.go#L27-L29
+	for message := range claim.Messages() {
+		log.Printf("Message claimed: value = %s, timestamp = %v, topic = %s", string(message.Value), message.Timestamp, message.Topic)
+		session.MarkMessage(message, "")
+	}
+
+	return nil
 }

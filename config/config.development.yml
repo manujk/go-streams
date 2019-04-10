@@ -5,5 +5,7 @@ kafka:
     - 192.168.1.142:9092
     - 192.168.1.143:9092
     - 192.168.1.144:9092
-  topic: gotest
-  group: gogroup
+  consumer:
+    - gotest1
+  producer: gosink
+  group: gogroup11
