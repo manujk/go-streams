@@ -22,16 +22,14 @@ func Publish(producer sarama.SyncProducer, topic string, in chan string) {
 
 	//channel range doesnt stop when there’s no more elements to be read
 	// unless the channel is closed
-	count := 0
 	for message := range in {
-		count++
 		msg := &sarama.ProducerMessage{
 			Topic: topic,
 			Value: sarama.StringEncoder(message),
 		}
 		_, _, err := producer.SendMessage(msg)
 		if err != nil {
-			fmt.Println("Error publish: ", err.Error())
+			fmt.Println("Error while publishing: ", err.Error())
 		}
 
 	}

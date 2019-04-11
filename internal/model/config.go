@@ -1,17 +1,11 @@
 package model
 
-import "fmt"
-
 type Config struct {
 	APPName string `default:"app name"`
 	Kafka   struct {
-		Brokers  []string
-		Consumer []string
-		Producer string
-		Group    string
+		Brokers       []string
+		ConsumerTopic string
+		ProducerTopic string
+		Group         string
 	}
-}
-
-func (config *Config) print() {
-	fmt.Printf("%+v\n", config)
 }

@@ -6,7 +6,6 @@ import (
 )
 
 func Parse(in chan []byte, out chan string) {
-
 	for msg := range in {
 		var topupJSON model.TopupSchema
 		_ = json.Unmarshal(msg, &topupJSON)
